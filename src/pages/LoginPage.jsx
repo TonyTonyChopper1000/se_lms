@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, BookOpen } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from "../../firebase"
@@ -13,6 +13,16 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Check for error message in location state (from redirects)
+  useEffect(() => {
+    if (location.state?.error) {
+      setError(location.state.error);
+      // Clear the location state
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,6 +74,17 @@ const LoginPage = () => {
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
+        
+        // Check if user is disabled
+        if (userData.disabled === true) {
+          // Sign out the user immediately
+          await auth.signOut();
+          
+          // Show error message
+          setError('Your account has been disabled. Please contact an administrator.');
+          setIsLoading(false);
+          return;
+        }
         
         // Store user info in localStorage if remember me is checked
         if (rememberMe) {
@@ -236,7 +257,7 @@ const LoginPage = () => {
         <div className="h-full w-full flex items-center justify-center p-12">
           <div className="rounded-2xl overflow-hidden shadow-2xl w-full max-w-2xl">
             <img 
-              src="/api/placeholder/800/600" 
+              src="https://ofy.org/wp-content/uploads/2015/11/OFY-learning-to-learn-cover-photo.jpg" 
               alt="Learning illustration" 
               className="w-full h-full object-cover"
             />

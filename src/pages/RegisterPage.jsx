@@ -291,7 +291,7 @@ const RegisterPage = () => {
         <div className="h-full w-full flex items-center justify-center p-12">
           <div className="rounded-2xl overflow-hidden shadow-2xl w-full max-w-2xl">
             <img 
-              src="/api/placeholder/800/600" 
+              src="https://ofy.org/wp-content/uploads/2015/11/OFY-learning-to-learn-cover-photo.jpg" 
               alt="Learning illustration" 
               className="w-full h-full object-cover"
             />
