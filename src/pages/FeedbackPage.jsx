@@ -1,33 +1,66 @@
 import React, { useState } from 'react';
-import { Star, Send, MessageCircle, ThumbsUp, User, Users , Mail } from 'lucide-react';
+import { Star, Send, MessageCircle, ThumbsUp, User, Users, Mail, AlertCircle } from 'lucide-react';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from "../../firebase"
+import { useAuth } from '../AuthContext';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
 // Feedback form component
 const FeedbackForm = () => {
+  const { currentUser } = useAuth();
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
   const [feedback, setFeedback] = useState('');
   const [category, setCategory] = useState('');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [name, setName] = useState(currentUser?.displayName || '');
+  const [email, setEmail] = useState(currentUser?.email || '');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log({ rating, category, feedback, name, email });
-    // In a real app, you would send this data to your server
-    setIsSubmitted(true);
-    
-    // Reset form after submission
-    setTimeout(() => {
-      setRating(0);
-      setFeedback('');
-      setCategory('');
-      setName('');
-      setEmail('');
-      setIsSubmitted(false);
-    }, 3000);
+    setIsLoading(true);
+    setError('');
+
+    try {
+      // Create feedback object
+      const feedbackData = {
+        rating,
+        category,
+        message: feedback,
+        name,
+        email,
+        userId: currentUser ? currentUser.uid : 'anonymous',
+        createdAt: serverTimestamp(),
+        status: 'pending' // For admin to track feedback status
+      };
+
+      // Add document to Firestore
+      await addDoc(collection(db, "feedbacks"), feedbackData);
+      
+      console.log('Feedback submitted successfully');
+      setIsSubmitted(true);
+      
+      // Reset form after submission
+      setTimeout(() => {
+        setRating(0);
+        setFeedback('');
+        setCategory('');
+        if (!currentUser) {
+          setName('');
+          setEmail('');
+        }
+        setIsSubmitted(false);
+      }, 3000);
+
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      setError('Failed to submit feedback. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -43,6 +76,16 @@ const FeedbackForm = () => {
         </div>
       ) : (
         <form onSubmit={handleSubmit}>
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 mr-2" />
+                <p>{error}</p>
+              </div>
+            </div>
+          )}
+          
           {/* Rating */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -57,6 +100,7 @@ const FeedbackForm = () => {
                   onMouseEnter={() => setHoveredRating(star)}
                   onMouseLeave={() => setHoveredRating(0)}
                   onClick={() => setRating(star)}
+                  disabled={isLoading}
                 >
                   <Star
                     className={`h-8 w-8 ${
@@ -84,6 +128,7 @@ const FeedbackForm = () => {
               onChange={(e) => setCategory(e.target.value)}
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent"
               required
+              disabled={isLoading}
             >
               <option value="" disabled>Select a category</option>
               <option value="course-content">Course Content</option>
@@ -108,6 +153,7 @@ const FeedbackForm = () => {
               placeholder="Please share your thoughts, suggestions, or concerns..."
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent"
               required
+              disabled={isLoading}
             ></textarea>
           </div>
           
@@ -125,7 +171,11 @@ const FeedbackForm = () => {
                 placeholder="John Doe"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent"
                 required
+                disabled={isLoading || (currentUser && currentUser.displayName)}
               />
+              {currentUser && currentUser.displayName && (
+                <p className="text-xs text-gray-500 mt-1">Using your account name</p>
+              )}
             </div>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -139,17 +189,36 @@ const FeedbackForm = () => {
                 placeholder="john@example.com"
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent"
                 required
+                disabled={isLoading || (currentUser && currentUser.email)}
               />
+              {currentUser && currentUser.email && (
+                <p className="text-xs text-gray-500 mt-1">Using your account email</p>
+              )}
             </div>
           </div>
           
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium py-3 px-4 rounded-lg hover:from-orange-500 hover:to-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-300 shadow-md transition-all flex items-center justify-center"
+            className={`w-full bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium py-3 px-4 rounded-lg hover:from-orange-500 hover:to-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-300 shadow-md transition-all flex items-center justify-center ${
+              isLoading ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
+            disabled={isLoading}
           >
-            <Send className="h-5 w-5 mr-2" />
-            Submit Feedback
+            {isLoading ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Send className="h-5 w-5 mr-2" />
+                Submit Feedback
+              </>
+            )}
           </button>
         </form>
       )}
