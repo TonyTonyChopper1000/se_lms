@@ -49,12 +49,7 @@ const AdminSidebar = ({ activeView, setActiveView, isSidebarOpen, setIsSidebarOp
       icon: <Users className="h-5 w-5" />,
       onClick: () => setActiveView('users')
     },
-    {
-      id: 'instructors',
-      label: 'Instructors',
-      icon: <User className="h-5 w-5" />,
-      onClick: () => setActiveView('instructors')
-    },
+    
     {
       id: 'courses',
       label: 'Courses',

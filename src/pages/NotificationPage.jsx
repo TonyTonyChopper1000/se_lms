@@ -1,54 +1,79 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bell, 
   Book, 
   Calendar, 
-  CheckCircle, 
   Clock, 
   MessageCircle, 
   Settings, 
-  Star,
-  Award,
-  File,
+  Info,
   AlertTriangle,
+  AlertCircle,
   RefreshCw,
-  X
+  Loader
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../AuthContext';
 
 // Individual notification component
-const NotificationItem = ({ notification, onMarkAsRead, onDelete }) => {
+const NotificationItem = ({ notification }) => {
   const icons = {
     course: <Book className="h-5 w-5" />,
     deadline: <Clock className="h-5 w-5" />,
     announcement: <Bell className="h-5 w-5" />,
     discussion: <MessageCircle className="h-5 w-5" />,
-    achievement: <Award className="h-5 w-5" />,
-    certificate: <File className="h-5 w-5" />,
     warning: <AlertTriangle className="h-5 w-5" />,
+    alert: <AlertCircle className="h-5 w-5" />,
     update: <RefreshCw className="h-5 w-5" />,
-    grade: <Star className="h-5 w-5" />,
+    info: <Info className="h-5 w-5" />
+  };
+
+  // Get formatted time
+  const getFormattedTime = (timestamp) => {
+    if (!timestamp) return 'Unknown time';
+    
+    try {
+      // Handle Firestore Timestamp
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      const now = new Date();
+      const diffInMS = now - date;
+      const diffInMin = Math.floor(diffInMS / (1000 * 60));
+      const diffInHrs = Math.floor(diffInMS / (1000 * 60 * 60));
+      const diffInDays = Math.floor(diffInMS / (1000 * 60 * 60 * 24));
+      
+      if (diffInMin < 60) {
+        return diffInMin <= 1 ? 'Just now' : `${diffInMin} minutes ago`;
+      } else if (diffInHrs < 24) {
+        return `${diffInHrs} ${diffInHrs === 1 ? 'hour' : 'hours'} ago`;
+      } else if (diffInDays < 7) {
+        return `${diffInDays} ${diffInDays === 1 ? 'day' : 'days'} ago`;
+      } else {
+        return date.toLocaleDateString();
+      }
+    } catch (err) {
+      console.error("Error formatting date:", err);
+      return 'Unknown time';
+    }
   };
 
   return (
-    <div className={`border-b border-gray-100 p-4 hover:bg-gray-50 transition-colors ${
-      notification.isRead ? 'opacity-70' : ''
-    }`}>
+    <div className="border-b border-gray-100 p-4 hover:bg-gray-50 transition-colors">
       <div className="flex items-start">
         {/* Icon */}
-        <div className={`mr-4 p-2.5 rounded-full flex-shrink-0 ${
-          notification.isRead 
-            ? 'bg-gray-100 text-gray-500' 
-            : `${getNotificationColor(notification.type)} text-white`
-        }`}>
+        <div className={`mr-4 p-2.5 rounded-full flex-shrink-0 ${getNotificationColor(notification.type)} text-white`}>
           {icons[notification.type] || <Bell className="h-5 w-5" />}
         </div>
 
         {/* Content */}
         <div className="flex-grow">
-          <p className={`text-sm ${notification.isRead ? 'text-gray-500' : 'text-gray-800 font-medium'}`}>
+          <h4 className="text-sm font-medium text-gray-900">
+            {notification.title || 'Notification'}
+          </h4>
+          <p className="text-sm mt-1 text-gray-700">
             {notification.message}
           </p>
           
@@ -57,38 +82,14 @@ const NotificationItem = ({ notification, onMarkAsRead, onDelete }) => {
               to={notification.actionLink} 
               className="text-orange-500 hover:text-orange-600 text-sm mt-1 inline-block"
             >
-              {notification.actionText}
+              {notification.actionText || 'View Details'}
             </Link>
           )}
           
-          <div className="flex justify-between items-center mt-2">
-            <p className="text-xs text-gray-500">{notification.time}</p>
-            
-            <div className="flex space-x-2">
-              {!notification.isRead && (
-                <button 
-                  onClick={() => onMarkAsRead(notification.id)}
-                  className="text-gray-500 hover:text-orange-500 text-xs flex items-center"
-                >
-                  <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                  Mark as read
-                </button>
-              )}
-              <button 
-                onClick={() => onDelete(notification.id)}
-                className="text-gray-500 hover:text-red-500 text-xs flex items-center"
-              >
-                <X className="h-3.5 w-3.5 mr-1" />
-                Delete
-              </button>
-            </div>
+          <div className="mt-2">
+            <p className="text-xs text-gray-500">{getFormattedTime(notification.createdAt || notification.date)}</p>
           </div>
         </div>
-
-        {/* Unread indicator */}
-        {!notification.isRead && (
-          <div className="ml-2 h-2.5 w-2.5 rounded-full bg-orange-500 flex-shrink-0"></div>
-        )}
       </div>
     </div>
   );
@@ -105,23 +106,21 @@ const getNotificationColor = (type) => {
       return 'bg-orange-500';
     case 'discussion':
       return 'bg-green-500';
-    case 'achievement':
-      return 'bg-purple-500';
-    case 'certificate':
-      return 'bg-teal-500';
     case 'warning':
       return 'bg-amber-500';
+    case 'alert':
+      return 'bg-red-500';
     case 'update':
       return 'bg-indigo-500';
-    case 'grade':
-      return 'bg-pink-500';
+    case 'info':
+      return 'bg-blue-500';
     default:
       return 'bg-gray-500';
   }
 };
 
 // Filter tabs component
-const FilterTabs = ({ activeFilter, setActiveFilter, filters, unreadCounts }) => {
+const FilterTabs = ({ activeFilter, setActiveFilter, filters }) => {
   return (
     <div className="flex overflow-x-auto pb-2 mb-4">
       {filters.map((filter) => (
@@ -136,15 +135,6 @@ const FilterTabs = ({ activeFilter, setActiveFilter, filters, unreadCounts }) =>
         >
           {filter.icon}
           <span className="ml-2">{filter.label}</span>
-          {unreadCounts[filter.value] > 0 && (
-            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-              activeFilter === filter.value
-                ? 'bg-white text-orange-500'
-                : 'bg-orange-100 text-orange-600'
-            }`}>
-              {unreadCounts[filter.value]}
-            </span>
-          )}
         </button>
       ))}
     </div>
@@ -152,7 +142,16 @@ const FilterTabs = ({ activeFilter, setActiveFilter, filters, unreadCounts }) =>
 };
 
 // Empty state component
-const EmptyState = ({ filter }) => {
+const EmptyState = ({ filter, loading }) => {
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mb-4"></div>
+        <p className="text-gray-600">Loading notifications...</p>
+      </div>
+    );
+  }
+  
   return (
     <div className="flex flex-col items-center justify-center py-16">
       <div className="bg-orange-100 p-4 rounded-full mb-4">
@@ -169,128 +168,136 @@ const EmptyState = ({ filter }) => {
 };
 
 const NotificationPage = () => {
-  // Dummy notifications data
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'course',
-      message: 'New lecture "Advanced JavaScript Concepts" has been added to your course "JavaScript Mastery".',
-      time: '2 hours ago',
-      isRead: false,
-      actionLink: '/courses/1/lectures/12',
-      actionText: 'View Lecture'
-    },
-    {
-      id: 2,
-      type: 'deadline',
-      message: 'Reminder: Assignment "Data Visualization Project" is due tomorrow at 11:59 PM.',
-      time: '5 hours ago',
-      isRead: false,
-      actionLink: '/courses/2/assignments/5',
-      actionText: 'View Assignment'
-    },
-    {
-      id: 3,
-      type: 'discussion',
-      message: 'Sarah replied to your question in the discussion forum.',
-      time: '1 day ago',
-      isRead: true,
-      actionLink: '/courses/1/discussions/8',
-      actionText: 'View Discussion'
-    },
-    {
-      id: 4,
-      type: 'announcement',
-      message: 'Important announcement from your instructor in "UI/UX Design Principles" course.',
-      time: '1 day ago',
-      isRead: false,
-      actionLink: '/courses/3/announcements',
-      actionText: 'Read Announcement'
-    },
-    {
-      id: 5,
-      type: 'achievement',
-      message: 'Congratulations! ',
-      time: '2 days ago',
-      isRead: true,
-      actionLink: '/profile/achievements',
-      actionText: 'View Achievements'
-    },
-    {
-      id: 6,
-      type: 'grade',
-      message: 'Your assignment "Database Design" has been graded. You received 92%.',
-      time: '3 days ago',
-      isRead: false,
-      actionLink: '/courses/4/grades',
-      actionText: 'View Grade'
-    },
-    {
-      id: 7,
-      type: 'update',
-      message: 'The platform will be undergoing maintenance on Saturday from 2-4 AM EST.',
-      time: '3 days ago',
-      isRead: true
-    },
-    {
-      id: 8,
-      type: 'certificate',
-      message: 'Your certificate for "Python Data Science" course is ready to download.',
-      time: '5 days ago',
-      isRead: true,
-      actionLink: '/certificates',
-      actionText: 'Download Certificate'
-    },
-    {
-      id: 9,
-      type: 'warning',
-      message: 'Your subscription will expire in 5 days. Renew now to avoid interruption.',
-      time: '5 days ago',
-      isRead: false,
-      actionLink: '/subscription',
-      actionText: 'Renew Subscription'
-    },
-    {
-      id: 10,
-      type: 'course',
-      message: 'New course recommendation based on your interests: "Blockchain Development Fundamentals"',
-      time: '1 week ago',
-      isRead: true,
-      actionLink: '/courses/15',
-      actionText: 'View Course'
-    }
-  ]);
-
+  const { currentUser } = useAuth();
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const notificationsPerPage = 10;
 
   // Filter definitions
   const filters = [
     { label: 'All Notifications', value: 'all', icon: <Bell className="h-4 w-4" /> },
-    { label: 'Courses', value: 'course', icon: <Book className="h-4 w-4" /> },
-    { label: 'Deadlines', value: 'deadline', icon: <Calendar className="h-4 w-4" /> },
-    { label: 'Discussions', value: 'discussion', icon: <MessageCircle className="h-4 w-4" /> },
-    { label: 'Achievements', value: 'achievement', icon: <Award className="h-4 w-4" /> }
+    { label: 'Announcements', value: 'announcement', icon: <Bell className="h-4 w-4" /> },
+    { label: 'Information', value: 'info', icon: <Info className="h-4 w-4" /> },
+    { label: 'Warnings', value: 'warning', icon: <AlertTriangle className="h-4 w-4" /> },
+    { label: 'Alerts', value: 'alert', icon: <AlertCircle className="h-4 w-4" /> }
   ];
 
-  // Calculate unread counts for each filter
-  const calculateUnreadCounts = () => {
-    const counts = { all: 0 };
-    
-    filters.forEach(filter => {
-      if (filter.value !== 'all') {
-        counts[filter.value] = notifications.filter(
-          n => n.type === filter.value && !n.isRead
-        ).length;
+  // Fetch notifications from Firestore
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!currentUser) {
+        setLoading(false);
+        return;
       }
-    });
-    
-    counts.all = notifications.filter(n => !n.isRead).length;
-    
-    return counts;
-  };
+      
+      try {
+        setLoading(true);
+        
+        // Create query based on user role and general notifications
+        const userRole = currentUser.role || 'user';
+        const notificationsRef = collection(db, 'user_notifications');
+        
+        // Simple query without compound conditions to avoid index issues
+        let notificationsQuery = query(
+          notificationsRef,
+          where('userId', '==', currentUser.uid),
+          // We'll sort client-side to avoid index requirements
+          limit(notificationsPerPage)
+        );
+        
+        const snapshot = await getDocs(notificationsQuery);
+        
+        if (snapshot.docs.length === notificationsPerPage) {
+          setHasMore(true);
+        } else {
+          setHasMore(false);
+        }
+        
+        const userNotifications = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        // Also fetch general notifications from the admin
+        const adminNotificationsRef = collection(db, 'notifications');
+        
+        // Split queries to avoid complex index requirements
+        // First get all notifications for this user's role
+        let roleSpecificQuery = query(
+          adminNotificationsRef,
+          where('audience', '==', userRole === 'instructor' ? 'instructors' : 'students'),
+          where('sent', '==', true),
+          limit(10)
+        );
+        
+        // Then get notifications for all users
+        let allUsersQuery = query(
+          adminNotificationsRef,
+          where('audience', '==', 'all'),
+          where('sent', '==', true),
+          limit(10)
+        );
+        
+        // Execute both queries
+        const roleSpecificSnapshot = await getDocs(roleSpecificQuery);
+        const allUsersSnapshot = await getDocs(allUsersQuery);
+        
+        // Combine results from both queries
+        const roleSpecificNotifications = roleSpecificSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: `admin-${doc.id}`,
+            sourceId: doc.id,
+            title: data.title,
+            message: data.message,
+            type: data.type || 'announcement',
+            createdAt: data.createdAt,
+            isSystemNotification: true
+          };
+        });
+        
+        const allUsersNotifications = allUsersSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: `admin-${doc.id}`,
+            sourceId: doc.id,
+            title: data.title,
+            message: data.message,
+            type: data.type || 'announcement',
+            createdAt: data.createdAt,
+            isSystemNotification: true
+          };
+        });
+        
+        // Combine both sets of admin notifications
+        const adminNotifications = [...roleSpecificNotifications, ...allUsersNotifications];
+        
+        // Combine notifications
+        const combinedNotifications = [...userNotifications, ...adminNotifications];
+        
+        // Sort manually since we couldn't use orderBy in the query
+        combinedNotifications.sort((a, b) => {
+          const dateA = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
+          const dateB = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
+          return dateB - dateA; // Descending order (newest first)
+        });
+        
+        setNotifications(combinedNotifications);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching notifications:', err);
+        setError('Failed to load notifications. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const unreadCounts = calculateUnreadCounts();
+    fetchNotifications();
+  }, [currentUser]);
 
   // Filter notifications based on active filter and search query
   const getFilteredNotifications = () => {
@@ -300,7 +307,8 @@ const NotificationPage = () => {
       
       // Filter by search query
       const searchMatch = !searchQuery || 
-        notification.message.toLowerCase().includes(searchQuery.toLowerCase());
+        (notification.title && notification.title.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (notification.message && notification.message.toLowerCase().includes(searchQuery.toLowerCase()));
       
       return typeMatch && searchMatch;
     });
@@ -308,28 +316,57 @@ const NotificationPage = () => {
 
   const filteredNotifications = getFilteredNotifications();
 
-  // Mark notification as read
-  const handleMarkAsRead = (id) => {
-    setNotifications(notifications.map(notification => 
-      notification.id === id 
-        ? { ...notification, isRead: true } 
-        : notification
-    ));
-  };
-
-  // Delete notification
-  const handleDelete = (id) => {
-    setNotifications(notifications.filter(notification => notification.id !== id));
-  };
-
-  // Mark all as read
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(notification => ({ ...notification, isRead: true })));
-  };
-
-  // Delete all read notifications
-  const handleDeleteAllRead = () => {
-    setNotifications(notifications.filter(notification => !notification.isRead));
+  // Load more notifications
+  const handleLoadMore = async () => {
+    if (!hasMore || !currentUser) return;
+    
+    try {
+      setLoading(true);
+      
+      // Query for more notifications - simplified to avoid index requirements
+      const notificationsRef = collection(db, 'user_notifications');
+      let nextQuery = query(
+        notificationsRef,
+        where('userId', '==', currentUser.uid),
+        limit(notificationsPerPage * 2)
+      );
+      
+      const snapshot = await getDocs(nextQuery);
+      
+      const allUserNotifications = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Filter out notifications we already have
+      const existingIds = notifications
+        .filter(n => !n.id.startsWith('admin-'))
+        .map(n => n.id);
+      
+      const newNotifications = allUserNotifications.filter(
+        notification => !existingIds.includes(notification.id)
+      );
+      
+      if (newNotifications.length < notificationsPerPage) {
+        setHasMore(false);
+      }
+      
+      // Sort and append to existing notifications
+      const updatedNotifications = [...notifications, ...newNotifications].sort((a, b) => {
+        const dateA = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
+        const dateB = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
+        return dateB - dateA;
+      });
+      
+      // Append to existing notifications
+      setNotifications(updatedNotifications);
+      
+    } catch (err) {
+      console.error('Error loading more notifications:', err);
+      alert('Failed to load more notifications. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -349,11 +386,11 @@ const NotificationPage = () => {
       {/* Main Content */}
       <div className="container mx-auto px-6 py-12">
         <div className="bg-white rounded-xl shadow-md overflow-hidden">
-          {/* Notification Header with Search and Actions */}
+          {/* Notification Header with Search */}
           <div className="p-6 border-b border-gray-100">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               {/* Search Bar */}
-              <div className="relative md:w-1/3">
+              <div className="relative w-full md:w-1/3">
                 <input
                   type="text"
                   placeholder="Search notifications..."
@@ -367,43 +404,6 @@ const NotificationPage = () => {
                   </svg>
                 </div>
               </div>
-              
-              {/* Action Buttons */}
-              <div className="flex space-x-4">
-                <button 
-                  onClick={handleMarkAllAsRead}
-                  disabled={!notifications.some(n => !n.isRead)}
-                  className={`flex items-center text-sm px-3 py-1.5 rounded-lg ${
-                    !notifications.some(n => !n.isRead)
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                  }`}
-                >
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Mark all as read
-                </button>
-                
-                <button 
-                  onClick={handleDeleteAllRead}
-                  disabled={!notifications.some(n => n.isRead)}
-                  className={`flex items-center text-sm px-3 py-1.5 rounded-lg ${
-                    !notifications.some(n => n.isRead)
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-red-50 text-red-600 hover:bg-red-100'
-                  }`}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Delete read notifications
-                </button>
-                
-                <Link 
-                  to="/notification-settings" 
-                  className="flex items-center text-sm px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
-                >
-                  <Settings className="h-4 w-4 mr-1" />
-                  Settings
-                </Link>
-              </div>
             </div>
             
             {/* Filter Tabs */}
@@ -412,85 +412,59 @@ const NotificationPage = () => {
                 activeFilter={activeFilter} 
                 setActiveFilter={setActiveFilter}
                 filters={filters}
-                unreadCounts={unreadCounts}
               />
             </div>
           </div>
           
+          {/* Error Message */}
+          {error && !loading && (
+            <div className="p-6 text-center text-red-500">
+              <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
+              <p>{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
+          
           {/* Notification List */}
           <div className="divide-y divide-gray-100">
-            {filteredNotifications.length > 0 ? (
+            {loading && filteredNotifications.length === 0 ? (
+              <EmptyState filter={activeFilter} loading={true} />
+            ) : filteredNotifications.length > 0 ? (
               filteredNotifications.map(notification => (
                 <NotificationItem 
                   key={notification.id} 
                   notification={notification}
-                  onMarkAsRead={handleMarkAsRead}
-                  onDelete={handleDelete}
                 />
               ))
             ) : (
-              <EmptyState filter={activeFilter} />
+              <EmptyState filter={activeFilter} loading={false} />
             )}
           </div>
           
-          {/* Load More Button - Could be replaced with pagination */}
-          {filteredNotifications.length > 0 && (
+          {/* Load More Button */}
+          {filteredNotifications.length > 0 && hasMore && (
             <div className="p-6 text-center">
-              <button className="text-orange-500 hover:text-orange-600 font-medium">
-                Load More Notifications
+              <button 
+                onClick={handleLoadMore}
+                disabled={loading}
+                className={`text-orange-500 hover:text-orange-600 font-medium ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <Loader className="h-4 w-4 mr-2 animate-spin" />
+                    Loading...
+                  </span>
+                ) : (
+                  'Load More Notifications'
+                )}
               </button>
             </div>
           )}
-        </div>
-        
-        {/* Notification Preferences Card */}
-        <div className="bg-white rounded-xl shadow-md p-6 mt-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Notification Preferences</h2>
-          <p className="text-gray-600 mb-6">
-            Customize how and when you receive notifications to stay updated on what matters most to you.
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-start">
-                <div className="bg-orange-100 p-2 rounded-full mr-3">
-                  <Bell className="h-5 w-5 text-orange-500" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-800 mb-1">Email Notifications</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Receive important updates via email based on your preferences.
-                  </p>
-                  <Link 
-                    to="/notification-settings/email" 
-                    className="text-sm text-orange-500 hover:text-orange-600"
-                  >
-                    Configure Email Preferences
-                  </Link>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-start">
-                <div className="bg-orange-100 p-2 rounded-full mr-3">
-                  <MessageCircle className="h-5 w-5 text-orange-500" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-800 mb-1">Push Notifications</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Get instant alerts for activities that require your attention.
-                  </p>
-                  <Link 
-                    to="/notification-settings/push" 
-                    className="text-sm text-orange-500 hover:text-orange-600"
-                  >
-                    Configure Push Notifications
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
       
